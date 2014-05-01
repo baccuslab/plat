@@ -139,7 +139,7 @@ def avg_power_spectrum(data, sample_rate=10000, n_segments=64):
         raise ValueError('data cannot have more than two dimensions')
 
     # Compute segment size and amount of overlap
-    total_length = next_pow2(data.shape[0])
+    total_length = data.shape[0]
     spacing = int(total_length / n_segments)    # Sliding FFTs spacing
     segment_length = 3 * spacing                # Size of each segment
 
@@ -156,16 +156,13 @@ def avg_power_spectrum(data, sample_rate=10000, n_segments=64):
 
         # Window the data
         begin, end = segment * spacing, min(segment * spacing + segment_length, padded_data.shape[0])
-        print('segment %d of %d\t%d to %d' % (segment + 1, n_segments, begin, end))
         d = padded_data[begin : end, :] * window[:(end - begin), :]
 
         # Compute the normalized power spectrum
         power[segment, :, :] = power_spectrum(d, segment_length) / window_energy
 
     # Compute the average spectrum and standard error
-    #print('averaging')
     avg_spectrum = np.mean(power, axis=0) / n_segments
-    #print('std-ing')
     sem_spectrum = np.std(power, axis=0) / np.sqrt(n_segments)
 
     # Return *one-sided* spectra
@@ -201,15 +198,23 @@ def comp_spectra(freq, spec1, spec2, channel=None, max_freq=1000):
     plt.semilogy(freq[idx], np.take(spec1[idx, :], channel, axis=1))
     plt.semilogy(freq[idx], np.take(spec2[idx, :], channel, axis=1))
 
+def run_comparison(beforefile, afterfile):
+    '''
+    Compare the power spectra from the two given files. The first file
+    should be the data before platinization and the second is data after.
+    '''
+    # Load the data
+    before, after = read_bin_files((beforefile, afterfile))
+
+    # Estimate the spectra
+    bmean, bstd, freq = avg_power_spectrum(before)
+    amean, astd, _ = avg_power_spectrum(after
+
 if __name__ == '__main__':
     
-    # Load the data
-    filenames = os.sys.argv[1:]
+    # Check input arguments
+    filenames = os.sys.argv[1:3]
     check_args(filenames)
-    before, after = read_bin_files(filenames)
 
-    # Estimate average power spectra
-    bmean, bstd, freq = avg_power_spectrum(before)
-    amean, astd, _ = avg_power_spectrum(after)
-
-    # Plot something?
+    # Run the comparison
+    run_comparison(filenames[0], filenames[1])
