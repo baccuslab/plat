@@ -198,17 +198,48 @@ def comp_spectra(freq, spec1, spec2, channel=None, max_freq=1000):
     plt.semilogy(freq[idx], np.take(spec1[idx, :], channel, axis=1))
     plt.semilogy(freq[idx], np.take(spec2[idx, :], channel, axis=1))
 
-def run_comparison(beforefile, afterfile):
+def run_comparison(beforefile, afterfile, comp_type='full'):
     '''
     Compare the power spectra from the two given files. The first file
     should be the data before platinization and the second is data after.
+
+    `comp_type` is a string identifying which type of comparison to run.
+        'full'  - Compare both power spectra and signal RMS (the default)
+        'spec'  - Compares power spectra
+        'rms'   - Compares RMS of signals before and after
     '''
     # Load the data
     before, after = read_bin_files((beforefile, afterfile))
 
-    # Estimate the spectra
-    bmean, bstd, freq = avg_power_spectrum(before)
-    amean, astd, _ = avg_power_spectrum(after
+    # Do the requested comparison
+    if comp_type == 'full':
+
+        # Estimate the spectra
+        bmean, bstd, freq = avg_power_spectrum(before)
+        amean, astd, _ = avg_power_spectrum(after)
+
+        # Compute RMS
+        brms = np.std(before, axis=0)
+        arms = np.std(after, axis=0)
+
+        # Returns
+        return freq, (bmean, bstd), (amean, astd), brms, arms
+
+    elif comp_type == 'spec':
+
+        # Estimate the spectra
+        bmean, bstd, freq = avg_power_spectrum(before)
+        amean, astd, _ = avg_power_spectrum(after)
+
+        return freq, (bmean, bstd), (amean, astd)
+
+    elif comp_type == 'rms':
+
+        # Compute rms
+        brms = np.std(before, axis=0)
+        arms = np.std(after, axis=0)
+
+        return brms, arms
 
 if __name__ == '__main__':
     
@@ -217,4 +248,4 @@ if __name__ == '__main__':
     check_args(filenames)
 
     # Run the comparison
-    run_comparison(filenames[0], filenames[1])
+    run_comparison(filenames[0], filenames[1], 'full')
