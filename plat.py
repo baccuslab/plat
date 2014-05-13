@@ -28,17 +28,10 @@ def read_bin_files(files):
     if before.shape == after.shape:
         return before, after
 
-    # Truncate lengths
-    if before.shape[0] < after.shape[0]:
-        after = after[:before.shape[0], :]
-    elif before.shape[0] > after.shape[0]:
-        before = before[:after.shape[0], :]
-
-    # Truncate number of channels
-    if before.shape[1] < after.shape[1]:
-        after = after[:, :before.shape[1]]
-    elif before.shape[1] > after.shape[1]:
-        before = before[:, :after.shape[1]]
+    # Truncate arrays to the size of the smallest
+    mins = np.min(np.vstack((before.shape, after.shape)), axis=0)
+    before[mins[0]:, mins[1]:] = []
+    after[mins[0]:, mins[1]:] = []
     
     return before, after
 
@@ -96,7 +89,7 @@ def pad_data(data, N, axis=0):
     # Pad
     return np.concatenate((data, np.zeros((N - n, data.shape[-1]))), axis)
 
-def avg_power_spectrum(data, sample_rate=10000, n_segments=64):
+def avg_power_spectrum(data, do_sem=False, sample_rate=10000, n_segments=64):
     '''
     Estimate the average power spectrum of the given data, using the Welch method. 
     The data is divided into an appropriate number of overlapping segments, whose 
@@ -113,6 +106,10 @@ def avg_power_spectrum(data, sample_rate=10000, n_segments=64):
     data (ndarray):
         The data of which to estimate the power spectrum. The first dimension
         should be samples, but the second dimension may be of any size.
+
+    do_sem (Boolean) [False]:
+        Compute the SEM of the average power spectrum. This defaults to False,
+        as this computation can be *very* expensive for long recordings.
 
     sample_rate (int) [10000]:
         The sample rate of the data. The default is 10K, which is probably
@@ -144,7 +141,7 @@ def avg_power_spectrum(data, sample_rate=10000, n_segments=64):
     segment_length = 3 * spacing                # Size of each segment
 
     # Pad the data array
-    padded_data = pad_data(data, total_length)
+    padded_data = pad_data(data, np.ceil(total_length / segment_length) * segment_length)
 
     # Get a Hamming window of the appropriate size
     window = np.tile(np.hamming(segment_length), (padded_data.shape[-1], 1)).T
@@ -155,20 +152,25 @@ def avg_power_spectrum(data, sample_rate=10000, n_segments=64):
     for segment in range(n_segments):
 
         # Window the data
+        print('segment {0:d} of {1:d}'.format(segment + 1, n_segments))
         begin, end = segment * spacing, min(segment * spacing + segment_length, padded_data.shape[0])
         d = padded_data[begin : end, :] * window[:(end - begin), :]
 
         # Compute the normalized power spectrum
         power[segment, :, :] = power_spectrum(d, segment_length) / window_energy
 
-    # Compute the average spectrum and standard error
-    avg_spectrum = np.mean(power, axis=0) / n_segments
-    sem_spectrum = np.std(power, axis=0) / np.sqrt(n_segments)
+    # Compute the average spectrum and standard error, one-sided
+    avg_spectrum = np.fft.fftshift(np.mean(power, axis=0) / n_segments)[segment_length / 2:]
+    if do_sem:
+        sem_spectrum = np.fft.fftshift(np.std(power, axis=0) / np.sqrt(n_segments))[segment_length / 2:]
+    else:
+        sem_spectrum = None
 
-    # Return *one-sided* spectra
-    return np.fft.fftshift(avg_spectrum)[segment_length / 2:], \
-            np.fft.fftshift(sem_spectrum)[segment_length / 2:], \
-            np.fft.fftshift(np.fft.fftfreq(segment_length, 1 / sample_rate))[segment_length / 2:]
+    # Compute return frequency values
+    freq = np.fft.fftshift(np.fft.fftfreq(segment_length, 1 / sample_rate))[segment_length / 2:]
+
+    # Return 
+    return avg_spectrum, sem_spectrum, freq
 
 def plot_channels(data, channel=None, sample_rate=10000, max_samples=1000):
     '''
