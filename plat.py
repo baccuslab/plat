@@ -6,10 +6,10 @@ A script to compare the effect of platinization on array noise.
 
 import numpy as np
 import os
-from pyret import binary
 import matplotlib.pyplot as plt
+from pyret import binary
 
-def check_args(args):
+def _check_args(args):
     '''
     Validate command-line inputs.
     '''
@@ -23,6 +23,18 @@ def read_bin_files(files):
     sequences are of different lengths (i.e., the before and after
     recordings were of diffferent lengths), the longer is truncated
     to the size of the shorter
+
+    Input
+    -----
+
+    files (iterable of strings):
+        The filenames to read in. Only first 2 are used.
+
+    Output
+    ------
+    
+    before, after (ndarray):
+        The recorded data from the two files.
     '''
     before, after = binary.readbin(files[0]), binary.readbin(files[1])
     if before.shape == after.shape:
@@ -35,7 +47,7 @@ def read_bin_files(files):
     
     return before, after
 
-def next_pow2(num):
+def _next_pow2(num):
     '''
     Compute the next power of 2, useful for FFTs.
     '''
@@ -65,8 +77,8 @@ def power_spectrum(data, L=None):
     '''
 
     # Length
-    if L is None:
-        L = next_pow2(data.shape[0])
+    if not L:
+        L = _next_pow2(data.shape[0])
     else:
         L = int(L)
 
@@ -76,7 +88,7 @@ def power_spectrum(data, L=None):
     # Compute the power spectrum
     return np.square(np.abs(fft))
 
-def pad_data(data, N, axis=0):
+def _pad_data(data, N, axis=0):
     '''
     Pad a data array with zeros so that the given axis has size N
     '''
@@ -141,7 +153,7 @@ def avg_power_spectrum(data, do_sem=False, sample_rate=10000, n_segments=64):
     segment_length = 3 * spacing                # Size of each segment
 
     # Pad the data array
-    padded_data = pad_data(data, np.ceil(total_length / segment_length) * segment_length)
+    padded_data = _pad_data(data, np.ceil(total_length / segment_length) * segment_length)
 
     # Get a Hamming window of the appropriate size
     window = np.tile(np.hamming(segment_length), (padded_data.shape[-1], 1)).T
@@ -174,31 +186,121 @@ def avg_power_spectrum(data, do_sem=False, sample_rate=10000, n_segments=64):
 
 def plot_channels(data, channel=None, sample_rate=10000, max_samples=1000):
     '''
-    Plot the actual data
+    Plot the actual data.
+
+    Input
+    -----
+
+    data (ndarray):
+        True binary recording data.
+
+    channel (iterable of ints) [None]:
+        Channels to plot. If None (the default) plot all channels.
+
+    sample_rate (float) [10000]:
+        Sample rate of the data.
+
+    max_samples (int) [1000]:
+        Number of samples to plot.
+
+    Output
+    ------
+
+    fig (Matplotlib.Figure):
+        The figure into which the data are plotted.
     '''
+
+    # Find channels to plot
     if channel is None:
         channel = np.arange(data.shape[1])
+
+    # Get the time axis
     time = np.arange(0, max_samples) * (1 / sample_rate)
+
+    # Plot data
+    fig = plt.figure()
     plt.plot(time, np.take(data[:max_samples, :], channel, axis=1))
 
-def plot_spectra(freq, spectra, channel=None, max_freq=100):
+    return fig
+
+def plot_spectra(freq, spectra, channel=None, bw=(0, 2000)):
     '''
     Plot power spectra.
+
+    Input
+    -----
+
+    freq (ndarray):
+        The frequency axis of the power spectra.
+
+    spectra (ndarray):
+        The spectra to plot.
+
+    channel (iterable of ints) [None]:
+        Channels to plot. If None (the default) plot all channels.
+
+    bw (tuple of floats) [(0, 2000)]:
+        The bandwith to plot, low freq to high freq.
+
+    Output
+    ------
+
+    fig (Matplotlib.Figure):
+        The figure into which the power spectra are plotted
     '''
+
+    # Find channels to plot
     if channel is None:
         channel = np.arange(spectra.shape[-1])
-    idx = freq < max_freq
+
+    # Get frequencies to plot
+    idx = (freq >= bw[0]) & (freq <= bw[1])
+
+    # Plot spectra
+    fig = plt.figure()
     plt.semilogy(freq[idx], np.take(spectra[idx, :], channel, axis=1))
 
-def comp_spectra(freq, spec1, spec2, channel=None, max_freq=1000):
+    return fig
+
+def comp_spectra(freq, spec1, spec2, channel=None, bw=(0, 2000)):
     '''
     Compare before/after power spectra.
+
+    Input
+    -----
+
+    freq (ndarray):
+        Frequency axis of the power spectra.
+
+    spec1, spec2 (ndarray):
+        The two power spectra to compare.
+
+    channel (iterable of ints) [None]:
+        The channels to plot. If None (the default) plot all channels.
+
+    bw (tuple of floats) [(0, 2000)]:
+        The bandwidth to plot, low freq to high freq.
+
+    Output
+    ------
+
+    fig (Matplotlib.Figure):
+        THe figure into which the power spectra are plotted
     '''
+
+    # Find channels to plot
     if channel is None:
         channel = np.arange(spec1.shape[-1])
-    idx = freq < max_freq
+
+    # Get frequencies to plot
+    idx = (freq >= bw[0]) & (freq <= bw[1])
+
+    # Plot two power spectra
+    fig = plt.figure()
     plt.semilogy(freq[idx], np.take(spec1[idx, :], channel, axis=1))
     plt.semilogy(freq[idx], np.take(spec2[idx, :], channel, axis=1))
+
+    return fig
 
 def run_comparison(beforefile, afterfile, comp_type='full'):
     '''
@@ -211,13 +313,18 @@ def run_comparison(beforefile, afterfile, comp_type='full'):
         'rms'   - Compares RMS of signals before and after
     '''
     # Load the data
+    print('loading data ... ', end='', flush=True)
     before, after = read_bin_files((beforefile, afterfile))
+    print('done.')
 
     # Do the requested comparison
+    print('running spectrum comparison ... ', flush=True)
     if comp_type == 'full':
 
         # Estimate the spectra
+        print('\nbefore platinization\n--------------------')
         bmean, bstd, freq = avg_power_spectrum(before)
+        print('\nafter platinization\n-------------------')
         amean, astd, _ = avg_power_spectrum(after)
 
         # Compute RMS
@@ -243,11 +350,50 @@ def run_comparison(beforefile, afterfile, comp_type='full'):
 
         return brms, arms
 
+def print_all(fnames, freq, spec1, spec2, rms1, rms2, bw=(0,1600)):
+    '''
+    Print all power spectra to PDF files
+    '''
+    # Construct path for saving figures and notify
+    base_dir = os.path.join(os.getcwd(), 'figures')
+    if not os.path.exists(base_dir):
+        os.mkdir(base_dir)
+    print('\nsaving figures to {s} ... '.format(s=base_dir), flush=True)
+
+    # Plot and save figures for each channel's spectrum
+    on = plt.isinteractive()
+    plt.ioff()
+    for chan in range(spec1.shape[-1]):
+        fig = comp_spectra(freq, spec1, spec2, channel=chan, bw=bw)
+        plt.title('Channel {0:d}'.format(chan))
+        plt.xlabel('Frequency (Hz)')
+        plt.ylabel('Power')
+        plt.legend(('Before', 'After'))
+        print('figure {:02d}'.format(chan), flush=True)
+        plt.savefig(os.path.join(base_dir, 'channel{0:02d}.png'.format(chan)), format='png')
+        plt.close(fig)
+
+    # Plot and save figure showing RMS ratio
+    fig = plt.figure()
+    plt.plot(rms2 / rms1, 'o')
+    plt.title('RMS ratio (after / before)')
+    plt.xlabel('Channel')
+    plt.savefig(os.path.join(base_dir, 'rms_ratio.png'), format='png')
+    plt.close(fig)
+
+    # Notify
+    plt.interactive(on)
+    print('done.')
+
 if __name__ == '__main__':
     
     # Check input arguments
     filenames = os.sys.argv[1:3]
-    check_args(filenames)
+    _check_args(filenames)
 
     # Run the comparison
-    run_comparison(filenames[0], filenames[1], 'full')
+    freq, before, after, brms, arms = run_comparison(filenames[0], filenames[1], 'full')
+
+    # Print all comparisons to PDF
+    print_all(filenames, freq, before[0], after[0], brms, arms, bw=(0, 1600))
+    os.sys.exit(0)
